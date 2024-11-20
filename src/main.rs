@@ -1,6 +1,8 @@
 use clap::Parser;
 use std::process::Command;
 
+use log::{error, info};
+
 #[derive(Parser)]
 #[command(
     author,
@@ -17,12 +19,13 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
     let args = Args::parse();
 
-    println!("Analyzing target: {}", args.target);
-    println!("Test targets:");
+    info!("Analyzing target: {}", args.target);
+    info!("Test targets:");
     for test in &args.test {
-        println!("  {}", test);
+        info!("  {}", test);
     }
 
     // Get deps for the target
@@ -48,13 +51,16 @@ fn main() {
 }
 
 fn get_deps(target: &str) -> Vec<String> {
+    let cmd_args = ["print deps", target];
+    info!("Executing: buildozer {}", cmd_args.join(" "));
+
     let output = Command::new("buildozer")
-        .args(["print deps", target])
+        .args(cmd_args)
         .output()
         .expect("Failed to execute buildozer");
 
     if !output.status.success() {
-        eprintln!(
+        error!(
             "buildozer failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -68,13 +74,16 @@ fn get_deps(target: &str) -> Vec<String> {
 }
 
 fn remove_dep(target: &str, dep: &str) -> bool {
+    let cmd = format!("remove deps {}", dep);
+    info!("Executing: buildozer {} {}", cmd, target);
+
     let output = Command::new("buildozer")
-        .args(["remove deps", dep, target])
+        .args([&cmd, target])
         .output()
         .expect("Failed to execute buildozer");
 
     if !output.status.success() {
-        eprintln!(
+        error!(
             "buildozer failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -85,13 +94,16 @@ fn remove_dep(target: &str, dep: &str) -> bool {
 }
 
 fn add_dep(target: &str, dep: &str) -> bool {
+    let cmd = format!("add deps {}", dep);
+    info!("Executing: buildozer {} {}", cmd, target);
+
     let output = Command::new("buildozer")
-        .args(["add deps", dep, target])
+        .args([&cmd, target])
         .output()
         .expect("Failed to execute buildozer");
 
     if !output.status.success() {
-        eprintln!(
+        error!(
             "buildozer failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -101,10 +113,12 @@ fn add_dep(target: &str, dep: &str) -> bool {
     true
 }
 
-fn test_passes_without_dep(target: &str, dep: &str, test_targets: &[&str]) -> bool {
+fn test_passes_without_dep(target: &str, dep: &str, test_targets: &Vec<String>) -> bool {
     remove_dep(target, dep);
     let mut success = true;
     for test in test_targets {
+        info!("Executing: bazel test {}", test);
+
         let output = Command::new("bazel")
             .args(["test", test])
             .output()
@@ -112,7 +126,7 @@ fn test_passes_without_dep(target: &str, dep: &str, test_targets: &[&str]) -> bo
 
         if !output.status.success() {
             success = false;
-            eprintln!(
+            error!(
                 "bazel test failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
