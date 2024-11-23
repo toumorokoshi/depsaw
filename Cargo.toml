@@ -8,3 +8,4 @@ clap = { version = "4.4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.10"
 git2 = "0.19"
+dashmap = "6.1.0"

@@ -1,12 +1,14 @@
-use git2::{Commit, ObjectType, Oid, Repository};
-use std::collections::{HashMap, HashSet};
+use dashmap::DashMap;
+use git2::{ObjectType, Oid, Repository};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub fn get_file_commit_history(
     repo_path: &str,
-) -> Result<HashMap<PathBuf, HashSet<Oid>>, git2::Error> {
+    max_history_length: i64,
+) -> Result<DashMap<String, HashSet<Oid>>, git2::Error> {
     let repo = Repository::open(repo_path)?;
-    let mut file_commits: HashMap<PathBuf, HashSet<Oid>> = HashMap::new();
+    let file_commits: DashMap<String, HashSet<Oid>> = DashMap::new();
 
     // Get the HEAD reference
     let head = repo.head()?;
@@ -16,6 +18,7 @@ pub fn get_file_commit_history(
     let mut revwalk = repo.revwalk()?;
     revwalk.push(head_commit.id())?;
 
+    let mut i = 0;
     // Iterate through all commits
     for oid in revwalk {
         let commit_id = oid?;
@@ -33,16 +36,24 @@ pub fn get_file_commit_history(
             diff.foreach(
                 &mut |delta, _| {
                     if let Some(new_file) = delta.new_file().path() {
-                        let path = PathBuf::from(new_file);
                         file_commits
-                            .entry(path)
+                            .entry(new_file.to_str().unwrap().to_owned())
                             .or_insert_with(HashSet::new)
                             .insert(commit_id);
-                    }
+                    };
                     true
                 },
                 None,
-                None,
+                Some(&mut |delta, _| {
+                    if let Some(new_file) = delta.new_file().path() {
+                        println!("New file: {}", new_file.display());
+                        file_commits
+                            .entry(new_file.to_str().unwrap().to_owned())
+                            .or_insert_with(HashSet::new)
+                            .insert(commit_id);
+                    };
+                    true
+                }),
                 None,
             )?;
         } else {
@@ -52,14 +63,17 @@ pub fn get_file_commit_history(
                 if entry.kind() == Some(ObjectType::Blob) {
                     let path = PathBuf::from(entry.name().unwrap_or(""));
                     file_commits
-                        .entry(path)
+                        .entry(path.to_str().unwrap().to_owned())
                         .or_insert_with(HashSet::new)
                         .insert(commit_id);
                 }
                 git2::TreeWalkResult::Ok
             })?;
         }
+        i += 1;
+        if i > max_history_length {
+            break;
+        }
     }
-
     Ok(file_commits)
 }
