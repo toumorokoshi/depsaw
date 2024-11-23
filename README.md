@@ -23,3 +23,6 @@ From there, dephammer will:
 3. run each of the test targets to see if they fail.
 4. print a list of the deps in which the tests continued to pass, even after
    they were removed.
+
+
+## Extracting

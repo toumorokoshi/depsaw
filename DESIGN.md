@@ -67,3 +67,12 @@ bazel query ...
 
 - look at `somepath` between a target and one you know *shouldn't* build the target, and try to jackhammmer those dependencies out.
 
+
+### Extracting the dependency graph
+
+For large repositories, writing the dependency graph to a file and reusing it
+may be significantly faster than running the command every time:
+
+```
+bazel query "deps(//...)" --output streamed_jsonproto >  ~/sandbox/dephammer.ndjson
+```

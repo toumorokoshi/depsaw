@@ -1,6 +1,9 @@
 use clap::Parser;
+use std::fs::File;
+use std::io::Write;
 use std::process::Command;
 
+mod bazel;
 mod git;
 use log::{error, info};
 
@@ -37,6 +40,23 @@ enum Commands {
 
         /// The maximum number of commit history to consider
         #[arg(long, default_value = "100")]
+        max_history_length: i64,
+
+        /// Path to the dependencies file
+        #[arg(long)]
+        deps_file: Option<String>,
+    },
+    /// Analyze git repository data, outputting a JSON file
+    AnalyzeGitRepo {
+        /// Path to the workspace root
+        workspace_path: String,
+
+        /// Path to output JSON file
+        #[arg(long)]
+        output: String,
+
+        /// The maximum number of commit history to consider
+        #[arg(long, default_value = "-1")]
         max_history_length: i64,
     },
 }
@@ -78,7 +98,14 @@ fn main() {
             workspace_path: workspace_root,
             target,
             max_history_length,
+            deps_file,
         } => {
+            let deps_graph = if let Some(deps_file) = deps_file {
+                bazel::BazelDependencyGraph::from_file(&deps_file)
+            } else {
+                bazel::BazelDependencyGraph::from_workspace(&workspace_root)
+            };
+
             println!(
                 "Calculating trigger scores for target in dir {}: {}",
                 target, workspace_root
@@ -86,6 +113,17 @@ fn main() {
             let trigger_score =
                 calculate_trigger_scores(&workspace_root, &target, max_history_length);
             println!("Trigger score for {}: {}", target, trigger_score);
+        }
+        Commands::AnalyzeGitRepo {
+            workspace_path,
+            output,
+            max_history_length,
+        } => {
+            let repo = git::GitRepo::from_path(&workspace_path, max_history_length).unwrap();
+            let json = serde_json::to_string_pretty(&repo).unwrap();
+
+            let mut file = File::create(output).unwrap();
+            file.write_all(json.as_bytes()).unwrap();
         }
     }
 }
@@ -179,18 +217,14 @@ fn test_passes_without_dep(target: &str, dep: &str, test_targets: &Vec<String>) 
 
 fn calculate_trigger_scores(workspace_root: &str, target: &str, max_history_length: i64) -> usize {
     let source_files = get_source_files(workspace_root, target);
-    let file_commit_history = git::get_file_commit_history(workspace_root, max_history_length);
-    let mut all_commits: std::collections::HashSet<git2::Oid> = std::collections::HashSet::new();
-    if let Ok(commit_history) = file_commit_history {
-        for source_file in source_files {
-            println!("Analyzing source file: {}", source_file);
-            if let Some(commits) = commit_history.get(&source_file) {
-                println!("Found {} commits for {}", commits.len(), source_file);
-                all_commits.extend(commits.iter());
-            }
+    let repo = git::GitRepo::from_path(workspace_root, max_history_length).unwrap();
+    let mut all_commits: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for source_file in source_files {
+        // println!("Analyzing source file: {}", source_file);
+        if let Some(file) = repo.files.get(&source_file) {
+            // println!("Found {} commits for {}", commits.len(), source_file);
+            all_commits.extend(file.commit_history.iter().cloned());
         }
-    } else {
-        error!("Failed to get file commit history");
     }
     return all_commits.len();
 }
