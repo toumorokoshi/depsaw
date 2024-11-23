@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
@@ -12,11 +13,15 @@ impl BazelDependencyGraph {
         BazelDependencyGraph::from_string(&content)
     }
 
-    pub fn from_workspace(workspace_root: &str) -> BazelDependencyGraph {
-        // bazel query "deps(//...)" --output streamed_jsonproto
+    pub fn from_workspace(workspace_root: &str, target: &str) -> BazelDependencyGraph {
         let output = Command::new("bazel")
             .current_dir(workspace_root)
-            .args(["query", "deps(//...)", "--output", "streamed_jsonproto"])
+            .args([
+                "query",
+                &format!("deps({})", target),
+                "--output",
+                "streamed_jsonproto",
+            ])
             .output()
             .expect("Failed to execute bazel query");
         let content = String::from_utf8(output.stdout).unwrap();
@@ -31,7 +36,9 @@ impl BazelDependencyGraph {
                 DependencyEntry::RULE { rule } => rule.name.clone(),
                 DependencyEntry::SOURCE_FILE { sourceFile } => sourceFile.name.clone(),
                 DependencyEntry::PACKAGE_GROUP { packageGroup } => packageGroup.name.clone(),
+                DependencyEntry::GENERATED_FILE { generatedFile } => generatedFile.name.clone(),
             };
+            info!("Adding target {}", name);
             targets_by_label.insert(name, entry);
         }
         BazelDependencyGraph { targets_by_label }
@@ -39,6 +46,7 @@ impl BazelDependencyGraph {
 
     pub fn get_source_files(&self, target: &str, recursive: bool) -> Vec<&SourceFile> {
         let mut source_files = vec![];
+        info!("Getting source files for {}", target);
         let entry = self.targets_by_label.get(target).unwrap();
         match entry {
             DependencyEntry::SOURCE_FILE { sourceFile } => source_files.push(sourceFile),
@@ -50,6 +58,7 @@ impl BazelDependencyGraph {
                 }
             }
             DependencyEntry::PACKAGE_GROUP { packageGroup } => {}
+            DependencyEntry::GENERATED_FILE { generatedFile } => {}
         };
         source_files
     }
@@ -61,6 +70,7 @@ enum DependencyEntry {
     RULE { rule: Rule },
     SOURCE_FILE { sourceFile: SourceFile },
     PACKAGE_GROUP { packageGroup: PackageGroup },
+    GENERATED_FILE { generatedFile: GeneratedFile },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,8 +98,8 @@ struct Attribute {
     pub intValue: Option<i64>,
     #[serde(default)]
     pub booleanValue: Option<bool>,
-    pub explicitlySpecified: bool,
-    pub nodep: bool,
+    pub explicitlySpecified: Option<bool>,
+    pub nodep: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -104,18 +114,11 @@ struct PackageGroup {
     pub name: String,
 }
 
-fn graph_from_protojson(content: &str) -> BazelDependencyGraph {
-    let raw_entries = read_from_protojson(content);
-    let mut targets_by_label = HashMap::new();
-    for entry in raw_entries {
-        let name = match &entry {
-            DependencyEntry::RULE { rule } => rule.name.clone(),
-            DependencyEntry::SOURCE_FILE { sourceFile } => sourceFile.name.clone(),
-            DependencyEntry::PACKAGE_GROUP { packageGroup } => packageGroup.name.clone(),
-        };
-        targets_by_label.insert(name, entry);
-    }
-    BazelDependencyGraph { targets_by_label }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct GeneratedFile {
+    pub name: String,
+    pub generatingRule: String,
+    pub location: String,
 }
 
 // read the contents of a bazel protojson file and parse it into a vector of DependencyEntry

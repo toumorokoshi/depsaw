@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
+use tracing::debug;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GitRepo {
@@ -17,6 +17,12 @@ impl GitRepo {
     pub fn from_path(path: &str, commit_history_length: i64) -> Result<GitRepo, git2::Error> {
         let files = get_file_commit_history(path, commit_history_length)?;
         Ok(GitRepo { files })
+    }
+
+    pub fn from_file(path: &str) -> Result<GitRepo, Box<dyn Error>> {
+        let file = File::open(path)?;
+        let repo: GitRepo = serde_json::from_reader(file)?;
+        Ok(repo)
     }
 }
 
@@ -44,6 +50,7 @@ fn get_file_commit_history(
     // Iterate through all commits
     for oid in revwalk {
         let commit_id = oid?;
+        debug!("processing commit: {}", commit_id);
         let commit = repo.find_commit(commit_id)?;
 
         if commit.parent_count() > 0 {

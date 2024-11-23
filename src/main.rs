@@ -2,6 +2,7 @@ use clap::Parser;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
+use tracing_subscriber;
 
 mod bazel;
 mod git;
@@ -45,6 +46,10 @@ enum Commands {
         /// Path to the dependencies file
         #[arg(long)]
         deps_file: Option<String>,
+
+        /// Path to the git analysis file
+        #[arg(long)]
+        git_analysis_file: Option<String>,
     },
     /// Analyze git repository data, outputting a JSON file
     AnalyzeGitRepo {
@@ -62,7 +67,7 @@ enum Commands {
 }
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
 
     match args.command {
@@ -99,19 +104,25 @@ fn main() {
             target,
             max_history_length,
             deps_file,
+            git_analysis_file,
         } => {
             let deps_graph = if let Some(deps_file) = deps_file {
                 bazel::BazelDependencyGraph::from_file(&deps_file)
             } else {
-                bazel::BazelDependencyGraph::from_workspace(&workspace_root)
+                bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)
+            };
+
+            let repo = if let Some(git_analysis_file) = git_analysis_file {
+                git::GitRepo::from_file(&git_analysis_file).unwrap()
+            } else {
+                git::GitRepo::from_path(&workspace_root, max_history_length).unwrap()
             };
 
             println!(
                 "Calculating trigger scores for target in dir {}: {}",
                 target, workspace_root
             );
-            let trigger_score =
-                calculate_trigger_scores(&workspace_root, &target, max_history_length);
+            let trigger_score = calculate_trigger_scores(&target, &repo, &deps_graph);
             println!("Trigger score for {}: {}", target, trigger_score);
         }
         Commands::AnalyzeGitRepo {
@@ -215,52 +226,26 @@ fn test_passes_without_dep(target: &str, dep: &str, test_targets: &Vec<String>) 
     success
 }
 
-fn calculate_trigger_scores(workspace_root: &str, target: &str, max_history_length: i64) -> usize {
-    let source_files = get_source_files(workspace_root, target);
-    let repo = git::GitRepo::from_path(workspace_root, max_history_length).unwrap();
+fn calculate_trigger_scores(
+    target: &str,
+    repo: &git::GitRepo,
+    deps_graph: &bazel::BazelDependencyGraph,
+) -> usize {
+    let source_files = deps_graph.get_source_files(target, true);
     let mut all_commits: std::collections::HashSet<String> = std::collections::HashSet::new();
     for source_file in source_files {
+        // we don't care about remote dependencies
+        if source_file.name.starts_with("@") {
+            continue;
+        }
+        let parts: Vec<&str> = source_file.name.split(':').collect();
+        let relative_path = &format!("{}/{}", parts[0], parts[1])[2..];
+
         // println!("Analyzing source file: {}", source_file);
-        if let Some(file) = repo.files.get(&source_file) {
+        if let Some(file) = repo.files.get(relative_path) {
             // println!("Found {} commits for {}", commits.len(), source_file);
             all_commits.extend(file.commit_history.iter().cloned());
         }
     }
     return all_commits.len();
-}
-
-fn get_source_files(workspace_root: &str, target: &str) -> std::collections::HashSet<String> {
-    let output = Command::new("bazel")
-        .current_dir(workspace_root)
-        .args([
-            "cquery",
-            &format!("kind(\"source file\", deps({}))", target),
-        ])
-        .output()
-        .expect("Failed to execute bazel cquery");
-
-    if !output.status.success() {
-        error!(
-            "bazel cquery failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return std::collections::HashSet::new();
-    }
-
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| {
-            if line.starts_with("@") {
-                return None;
-            }
-            let parts: Vec<&str> = line.split(':').collect();
-            if parts.len() == 2 {
-                let s = format!("{}/{}", parts[0], parts[1]);
-                // Remove the first two and the last " (null)"
-                Some(s[2..s.len() - 7].to_string())
-            } else {
-                None
-            }
-        })
-        .collect()
 }
