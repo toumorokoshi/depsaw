@@ -1,12 +1,9 @@
-use dashmap::DashMap;
-use git2::{ObjectType, Repository};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
-use std::path::PathBuf;
-use tracing::debug;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GitRepo {
@@ -14,8 +11,8 @@ pub struct GitRepo {
 }
 
 impl GitRepo {
-    pub fn from_path(path: &str, commit_history_length: i64) -> Result<GitRepo, git2::Error> {
-        let files = get_file_commit_history(path, commit_history_length)?;
+    pub fn from_path(path: &str, since: Option<String>) -> Result<GitRepo, Box<dyn Error>> {
+        let files = get_file_commit_history(path, since)?;
         Ok(GitRepo { files })
     }
 
@@ -33,87 +30,56 @@ pub struct GitFile {
 
 fn get_file_commit_history(
     repo_path: &str,
-    max_history_length: i64,
-) -> Result<HashMap<String, GitFile>, git2::Error> {
-    let repo = Repository::open(repo_path)?;
-    let file_commits: DashMap<String, GitFile> = DashMap::new();
+    since: Option<String>,
+) -> Result<HashMap<String, GitFile>, Box<dyn Error>> {
+    let mut file_commits: HashMap<String, GitFile> = HashMap::new();
 
-    // Get the HEAD reference
-    let head = repo.head()?;
-    let head_commit = head.peel_to_commit()?;
+    // Build command args, conditionally adding --since
+    let mut args: Vec<String> = vec![
+        "log".to_string(),
+        "--format=%n%H".to_string(),
+        "--name-only".to_string(),
+    ];
+    if let Some(since_date) = since {
+        let arg = format!("--since={}", since_date);
+        args.push(arg);
+    }
 
-    // Create a revwalk to iterate through all commits
-    let mut revwalk = repo.revwalk()?;
-    revwalk.push(head_commit.id())?;
+    // Run git log command
+    let output = std::process::Command::new("git")
+        .current_dir(repo_path)
+        .args(&args)
+        .output()?;
 
-    let mut i = 0;
-    // Iterate through all commits
-    for oid in revwalk {
-        let commit_id = oid?;
-        debug!("processing commit: {}", commit_id);
-        let commit = repo.find_commit(commit_id)?;
+    if !output.status.success() {
+        return Err(format!(
+            "Git command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
 
-        if commit.parent_count() > 0 {
-            let parent = commit.parent(0)?;
-            let tree = commit.tree()?;
-            let parent_tree = parent.tree()?;
+    let output_str = String::from_utf8(output.stdout)?;
+    let mut lines = output_str.lines();
+    lines.next();
 
-            // Get the diff between this commit and its parent
-            let diff = repo.diff_tree_to_tree(Some(&parent_tree), Some(&tree), None)?;
-
-            // Process each file change in the diff
-            diff.foreach(
-                &mut |delta, _| {
-                    if let Some(new_file) = delta.new_file().path() {
-                        file_commits
-                            .entry(new_file.to_str().unwrap().to_owned())
-                            .or_insert_with(|| GitFile {
-                                commit_history: HashSet::new(),
-                            })
-                            .commit_history
-                            .insert(commit_id.to_string());
-                    };
-                    true
-                },
-                None,
-                Some(&mut |delta, _| {
-                    if let Some(new_file) = delta.new_file().path() {
-                        // kjprintln!("New file: {}", new_file.display());
-                        file_commits
-                            .entry(new_file.to_str().unwrap().to_owned())
-                            .or_insert_with(|| GitFile {
-                                commit_history: HashSet::new(),
-                            })
-                            .commit_history
-                            .insert(commit_id.to_string());
-                    };
-                    true
-                }),
-                None,
-            )?;
-        } else {
-            // For the initial commit, add all files
-            let tree = commit.tree()?;
-            tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
-                if entry.kind() == Some(ObjectType::Blob) {
-                    let path = PathBuf::from(entry.name().unwrap_or(""));
-                    file_commits
-                        .entry(path.to_str().unwrap().to_owned())
-                        .or_insert_with(|| GitFile {
-                            commit_history: HashSet::new(),
-                        })
-                        .commit_history
-                        .insert(commit_id.to_string());
-                }
-                git2::TreeWalkResult::Ok
-            })?;
-        }
-        if max_history_length != -1 {
-            i += 1;
-            if i > max_history_length {
+    while let Some(commit_hash) = lines.next() {
+        debug!("processing commit_hash: {}", commit_hash);
+        lines.next(); // Skip the empty line
+                      // Collect all files until we hit an empty line
+        while let Some(file_path) = lines.next() {
+            if file_path.is_empty() {
                 break;
             }
+            file_commits
+                .entry(file_path.to_string())
+                .or_insert_with(|| GitFile {
+                    commit_history: HashSet::new(),
+                })
+                .commit_history
+                .insert(commit_hash.to_string());
         }
     }
-    Ok(file_commits.into_iter().collect())
+
+    Ok(file_commits)
 }

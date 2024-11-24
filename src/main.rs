@@ -40,8 +40,8 @@ enum Commands {
         target: String,
 
         /// The maximum number of commit history to consider
-        #[arg(long, default_value = "100")]
-        max_history_length: i64,
+        #[arg(long)]
+        since: Option<String>,
 
         /// Path to the dependencies file
         #[arg(long)]
@@ -61,8 +61,8 @@ enum Commands {
         output: String,
 
         /// The maximum number of commit history to consider
-        #[arg(long, default_value = "-1")]
-        max_history_length: i64,
+        #[arg(long)]
+        since: Option<String>,
     },
 }
 
@@ -102,7 +102,7 @@ fn main() {
         Commands::TriggerScores {
             workspace_path: workspace_root,
             target,
-            max_history_length,
+            since,
             deps_file,
             git_analysis_file,
         } => {
@@ -115,7 +115,7 @@ fn main() {
             let repo = if let Some(git_analysis_file) = git_analysis_file {
                 git::GitRepo::from_file(&git_analysis_file).unwrap()
             } else {
-                git::GitRepo::from_path(&workspace_root, max_history_length).unwrap()
+                git::GitRepo::from_path(&workspace_root, since).unwrap()
             };
 
             println!(
@@ -128,9 +128,9 @@ fn main() {
         Commands::AnalyzeGitRepo {
             workspace_path,
             output,
-            max_history_length,
+            since,
         } => {
-            let repo = git::GitRepo::from_path(&workspace_path, max_history_length).unwrap();
+            let repo = git::GitRepo::from_path(&workspace_path, since).unwrap();
             let json = serde_json::to_string_pretty(&repo).unwrap();
 
             let mut file = File::create(output).unwrap();

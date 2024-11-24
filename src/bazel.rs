@@ -1,4 +1,4 @@
-use log::info;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
@@ -38,7 +38,7 @@ impl BazelDependencyGraph {
                 DependencyEntry::PACKAGE_GROUP { packageGroup } => packageGroup.name.clone(),
                 DependencyEntry::GENERATED_FILE { generatedFile } => generatedFile.name.clone(),
             };
-            info!("Adding target {}", name);
+            debug!("Adding target {}", name);
             targets_by_label.insert(name, entry);
         }
         BazelDependencyGraph { targets_by_label }
@@ -46,7 +46,7 @@ impl BazelDependencyGraph {
 
     pub fn get_source_files(&self, target: &str, recursive: bool) -> Vec<&SourceFile> {
         let mut source_files = vec![];
-        info!("Getting source files for {}", target);
+        debug!("Getting source files for {}", target);
         let entry = self.targets_by_label.get(target).unwrap();
         match entry {
             DependencyEntry::SOURCE_FILE { sourceFile } => source_files.push(sourceFile),
