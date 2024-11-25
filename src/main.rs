@@ -1,4 +1,5 @@
 use clap::Parser;
+use rkyv;
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
@@ -136,10 +137,6 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
                 git::GitRepo::from_path(&workspace_root, since).unwrap()
             };
 
-            println!(
-                "Calculating trigger scores for target in dir {}: {}",
-                target, workspace_root
-            );
             let trigger_score = calculate_trigger_scores(&target, &repo, &deps_graph)?;
             println!("Trigger score for {}: {}", target, trigger_score);
             Ok(())
@@ -150,10 +147,10 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             since,
         } => {
             let repo = git::GitRepo::from_path(&workspace_path, since).unwrap();
-            let json = serde_json::to_string_pretty(&repo).unwrap();
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&repo)?;
 
             let mut file = File::create(output).unwrap();
-            file.write_all(json.as_bytes()).unwrap();
+            file.write_all(&bytes).unwrap();
             Ok(())
         }
         Commands::AnalyzeBazelDeps {
@@ -162,10 +159,9 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             output,
         } => {
             let deps_graph = bazel::BazelDependencyGraph::from_workspace(&workspace_path, &target);
-            let json = serde_json::to_string_pretty(&deps_graph).unwrap();
-
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&deps_graph)?;
             let mut file = File::create(output).unwrap();
-            file.write_all(json.as_bytes()).unwrap();
+            file.write_all(&bytes).unwrap();
             Ok(())
         }
     }

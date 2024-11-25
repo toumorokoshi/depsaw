@@ -1,5 +1,5 @@
-use log::debug;
-use serde::{Deserialize, Serialize};
+use log::{debug, info};
+use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
@@ -7,25 +7,27 @@ use std::fs::File;
 
 const DEPHAMMER_COMMIT_PREFIX: &str = "dephammer-commit:";
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
 pub struct GitRepo {
     pub files: HashMap<String, GitFile>,
 }
 
 impl GitRepo {
     pub fn from_path(path: &str, since: Option<String>) -> Result<GitRepo, Box<dyn Error>> {
+        info!("running git repo analysis in {}", path);
         let files = get_file_commit_history(path, since)?;
         Ok(GitRepo { files })
     }
 
     pub fn from_file(path: &str) -> Result<GitRepo, Box<dyn Error>> {
-        let file = File::open(path)?;
-        let repo: GitRepo = serde_json::from_reader(file)?;
+        info!("reading git repo analysis from {}", path);
+        let content = std::fs::read(path).unwrap();
+        let repo: GitRepo = rkyv::from_bytes::<GitRepo, rkyv::rancor::Error>(&content)?;
         Ok(repo)
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
 pub struct GitFile {
     pub commit_history: HashSet<String>,
 }

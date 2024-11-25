@@ -1,15 +1,17 @@
 use log::{debug, info};
+use rkyv;
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::process::Command;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Archive, Debug, RkyvSerialize, RkyvDeserialize, Clone)]
 pub struct BazelDependencyGraph {
     rules_by_label: HashMap<String, Entry>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Archive, Debug, RkyvSerialize, RkyvDeserialize, Clone)]
 pub struct Entry {
     pub dep_targets: Vec<String>,
     pub source_files: Vec<String>,
@@ -17,8 +19,9 @@ pub struct Entry {
 
 impl BazelDependencyGraph {
     pub fn from_file(path: &str) -> Result<BazelDependencyGraph, Box<dyn Error>> {
-        let content = std::fs::read_to_string(path).unwrap();
-        Ok(serde_json::from_str(&content)?)
+        info!("reading bazel dependency graph from {}", path);
+        let content = std::fs::read(path).unwrap();
+        Ok(rkyv::from_bytes::<BazelDependencyGraph, rkyv::rancor::Error>(&content)?)
     }
 
     pub fn from_workspace(workspace_root: &str, target: &str) -> BazelDependencyGraph {
