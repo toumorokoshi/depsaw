@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
@@ -51,6 +52,18 @@ enum Commands {
         #[arg(long)]
         git_analysis_file: Option<String>,
     },
+    /// Analyze Bazel dependency graph
+    AnalyzeBazelDeps {
+        /// Path to the workspace root
+        workspace_path: String,
+
+        /// The target to analyze
+        target: String,
+
+        /// Path to the dependencies file
+        #[arg(long)]
+        output: String,
+    },
     /// Analyze git repository data, outputting a JSON file
     AnalyzeGitRepo {
         /// Path to the workspace root
@@ -67,6 +80,10 @@ enum Commands {
 }
 
 fn main() {
+    main_inner().unwrap();
+}
+
+fn main_inner() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
 
@@ -98,6 +115,7 @@ fn main() {
                     println!("  {}", dep);
                 }
             }
+            Ok(())
         }
         Commands::TriggerScores {
             workspace_path: workspace_root,
@@ -107,7 +125,7 @@ fn main() {
             git_analysis_file,
         } => {
             let deps_graph = if let Some(deps_file) = deps_file {
-                bazel::BazelDependencyGraph::from_file(&deps_file)
+                bazel::BazelDependencyGraph::from_file(&deps_file)?
             } else {
                 bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)
             };
@@ -122,8 +140,9 @@ fn main() {
                 "Calculating trigger scores for target in dir {}: {}",
                 target, workspace_root
             );
-            let trigger_score = calculate_trigger_scores(&target, &repo, &deps_graph);
+            let trigger_score = calculate_trigger_scores(&target, &repo, &deps_graph)?;
             println!("Trigger score for {}: {}", target, trigger_score);
+            Ok(())
         }
         Commands::AnalyzeGitRepo {
             workspace_path,
@@ -135,6 +154,19 @@ fn main() {
 
             let mut file = File::create(output).unwrap();
             file.write_all(json.as_bytes()).unwrap();
+            Ok(())
+        }
+        Commands::AnalyzeBazelDeps {
+            workspace_path,
+            target,
+            output,
+        } => {
+            let deps_graph = bazel::BazelDependencyGraph::from_workspace(&workspace_path, &target);
+            let json = serde_json::to_string_pretty(&deps_graph).unwrap();
+
+            let mut file = File::create(output).unwrap();
+            file.write_all(json.as_bytes()).unwrap();
+            Ok(())
         }
     }
 }
@@ -230,16 +262,17 @@ fn calculate_trigger_scores(
     target: &str,
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
-) -> usize {
+) -> Result<usize, Box<dyn Error>> {
     info!("calculating trigger scores for target: {}", target);
-    let source_files = deps_graph.get_source_files(target, true);
+    let source_files = deps_graph.get_source_files(target, true)?;
+    info!("found {} source files", source_files.len());
     let mut all_commits: std::collections::HashSet<String> = std::collections::HashSet::new();
     for source_file in source_files {
         // we don't care about remote dependencies
-        if source_file.name.starts_with("@") {
+        if source_file.starts_with("@") {
             continue;
         }
-        let parts: Vec<&str> = source_file.name.split(':').collect();
+        let parts: Vec<&str> = source_file.split(':').collect();
         let relative_path = &format!("{}/{}", parts[0], parts[1])[2..];
 
         // println!("Analyzing source file: {}", source_file);
@@ -248,5 +281,5 @@ fn calculate_trigger_scores(
             all_commits.extend(file.commit_history.iter().cloned());
         }
     }
-    return all_commits.len();
+    Ok(all_commits.len())
 }

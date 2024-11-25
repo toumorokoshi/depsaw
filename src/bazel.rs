@@ -1,17 +1,24 @@
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::is_separator;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::process::Command;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BazelDependencyGraph {
-    targets_by_label: HashMap<String, DependencyEntry>,
+    rules_by_label: HashMap<String, Entry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Entry {
+    pub dep_targets: Vec<String>,
+    pub source_files: Vec<String>,
 }
 
 impl BazelDependencyGraph {
-    pub fn from_file(path: &str) -> BazelDependencyGraph {
+    pub fn from_file(path: &str) -> Result<BazelDependencyGraph, Box<dyn Error>> {
         let content = std::fs::read_to_string(path).unwrap();
-        BazelDependencyGraph::from_string(&content)
+        Ok(serde_json::from_str(&content)?)
     }
 
     pub fn from_workspace(workspace_root: &str, target: &str) -> BazelDependencyGraph {
@@ -33,39 +40,84 @@ impl BazelDependencyGraph {
         info!("parsing bazel dependency graph");
         let raw_entries = read_from_protojson(content);
         let mut targets_by_label = HashMap::new();
+        let mut rules = vec![];
         for entry in raw_entries {
             let name = match &entry {
-                DependencyEntry::RULE { rule } => rule.name.clone(),
+                DependencyEntry::RULE { rule } => {
+                    rules.push(rule.clone());
+                    rule.name.clone()
+                }
                 DependencyEntry::SOURCE_FILE { sourceFile } => sourceFile.name.clone(),
                 DependencyEntry::PACKAGE_GROUP { packageGroup } => packageGroup.name.clone(),
                 DependencyEntry::GENERATED_FILE { generatedFile } => generatedFile.name.clone(),
             };
-            debug!("adding target {}", name);
             targets_by_label.insert(name, entry);
         }
-        BazelDependencyGraph { targets_by_label }
-    }
-
-    pub fn get_source_files(&self, target: &str, recursive: bool) -> Vec<&SourceFile> {
-        info!("getting source files for {}", target);
-        if target.starts_with("@") {
-            return vec![];
-        }
-        let mut source_files = vec![];
-        let entry = self.targets_by_label.get(target).unwrap();
-        match entry {
-            DependencyEntry::SOURCE_FILE { sourceFile } => source_files.push(sourceFile),
-            DependencyEntry::RULE { rule } => {
-                if recursive {
-                    for input in rule.ruleInput.iter() {
-                        source_files.extend(self.get_source_files(&input, true));
+        let mut rules_by_label = HashMap::new();
+        // parse through each rule
+        for rule in rules {
+            let mut source_files = vec![];
+            let mut dep_targets = vec![];
+            for dep in rule.ruleInput {
+                // ignore external dependencies
+                if dep.starts_with("@") {
+                    continue;
+                }
+                if let Some(entry) = targets_by_label.get(&dep) {
+                    match entry {
+                        DependencyEntry::SOURCE_FILE { sourceFile } => {
+                            source_files.push(sourceFile.name.clone());
+                        }
+                        DependencyEntry::RULE { rule } => {
+                            dep_targets.push(rule.name.clone());
+                        }
+                        _ => {}
                     }
                 }
             }
-            DependencyEntry::PACKAGE_GROUP { packageGroup } => {}
-            DependencyEntry::GENERATED_FILE { generatedFile } => {}
-        };
-        source_files
+            let entry = Entry {
+                dep_targets,
+                source_files,
+            };
+            rules_by_label.insert(rule.name, entry);
+        }
+
+        BazelDependencyGraph { rules_by_label }
+    }
+
+    pub fn get_source_files(
+        &self,
+        target: &str,
+        recursive: bool,
+    ) -> Result<Vec<String>, Box<dyn Error>> {
+        let mut visited_targets = HashSet::new();
+        self.get_source_files_inner(target, recursive, &mut visited_targets)
+    }
+
+    fn get_source_files_inner(
+        &self,
+        target: &str,
+        recursive: bool,
+        visited_targets: &mut HashSet<String>,
+    ) -> Result<Vec<String>, Box<dyn Error>> {
+        debug!("getting source files for {}", target);
+        let entry = self.rules_by_label.get(target).ok_or(format!(
+            "target {} not found in bazel dependency graph",
+            target
+        ))?;
+        let mut source_files = entry.source_files.clone();
+        for dep_target in entry.dep_targets.iter() {
+            if visited_targets.contains(dep_target) {
+                continue;
+            }
+            source_files.extend(self.get_source_files_inner(
+                dep_target,
+                recursive,
+                visited_targets,
+            )?);
+        }
+        visited_targets.insert(target.to_string());
+        Ok(source_files)
     }
 }
 
