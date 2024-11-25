@@ -206,7 +206,7 @@ fn test_passes_without_dep(target: &str, dep: &str, test_targets: &Vec<String>) 
     remove_dep(target, dep);
     let mut success = true;
     for test in test_targets {
-        info!("Executing: bazel test {}", test);
+        info!("executing: bazel test {}", test);
 
         let output = Command::new("bazel")
             .args(["test", test])
@@ -231,6 +231,7 @@ fn calculate_trigger_scores(
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
 ) -> usize {
+    info!("calculating trigger scores for target: {}", target);
     let source_files = deps_graph.get_source_files(target, true);
     let mut all_commits: std::collections::HashSet<String> = std::collections::HashSet::new();
     for source_file in source_files {

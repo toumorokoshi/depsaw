@@ -1,6 +1,7 @@
-use log::debug;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::is_separator;
 use std::process::Command;
 
 pub struct BazelDependencyGraph {
@@ -29,6 +30,7 @@ impl BazelDependencyGraph {
     }
 
     pub fn from_string(content: &str) -> BazelDependencyGraph {
+        info!("parsing bazel dependency graph");
         let raw_entries = read_from_protojson(content);
         let mut targets_by_label = HashMap::new();
         for entry in raw_entries {
@@ -38,15 +40,18 @@ impl BazelDependencyGraph {
                 DependencyEntry::PACKAGE_GROUP { packageGroup } => packageGroup.name.clone(),
                 DependencyEntry::GENERATED_FILE { generatedFile } => generatedFile.name.clone(),
             };
-            debug!("Adding target {}", name);
+            debug!("adding target {}", name);
             targets_by_label.insert(name, entry);
         }
         BazelDependencyGraph { targets_by_label }
     }
 
     pub fn get_source_files(&self, target: &str, recursive: bool) -> Vec<&SourceFile> {
+        info!("getting source files for {}", target);
+        if target.starts_with("@") {
+            return vec![];
+        }
         let mut source_files = vec![];
-        debug!("Getting source files for {}", target);
         let entry = self.targets_by_label.get(target).unwrap();
         match entry {
             DependencyEntry::SOURCE_FILE { sourceFile } => source_files.push(sourceFile),

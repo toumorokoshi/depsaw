@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 
+const DEPHAMMER_COMMIT_PREFIX: &str = "dephammer-commit:";
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GitRepo {
     pub files: HashMap<String, GitFile>,
@@ -37,7 +39,7 @@ fn get_file_commit_history(
     // Build command args, conditionally adding --since
     let mut args: Vec<String> = vec![
         "log".to_string(),
-        "--format=%n%H".to_string(),
+        format!("--format={}%H", DEPHAMMER_COMMIT_PREFIX).to_string(),
         "--name-only".to_string(),
     ];
     if let Some(since_date) = since {
@@ -63,21 +65,22 @@ fn get_file_commit_history(
     let mut lines = output_str.lines();
     lines.next();
 
-    while let Some(commit_hash) = lines.next() {
-        debug!("processing commit_hash: {}", commit_hash);
-        lines.next(); // Skip the empty line
-                      // Collect all files until we hit an empty line
-        while let Some(file_path) = lines.next() {
-            if file_path.is_empty() {
-                break;
-            }
+    let mut commit = "";
+    while let Some(line) = lines.next() {
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with(DEPHAMMER_COMMIT_PREFIX) {
+            commit = line.split(DEPHAMMER_COMMIT_PREFIX).nth(1).unwrap();
+            debug!("processing commit_hash: {}", commit);
+        } else {
             file_commits
-                .entry(file_path.to_string())
+                .entry(line.to_string())
                 .or_insert_with(|| GitFile {
                     commit_history: HashSet::new(),
                 })
                 .commit_history
-                .insert(commit_hash.to_string());
+                .insert(commit.to_string());
         }
     }
 
