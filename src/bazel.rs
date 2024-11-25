@@ -8,7 +8,7 @@ use std::process::Command;
 
 #[derive(Archive, Debug, RkyvSerialize, RkyvDeserialize, Clone)]
 pub struct BazelDependencyGraph {
-    rules_by_label: HashMap<String, Entry>,
+    pub rules_by_label: HashMap<String, Entry>,
 }
 
 #[derive(Archive, Debug, RkyvSerialize, RkyvDeserialize, Clone)]

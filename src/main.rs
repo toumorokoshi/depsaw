@@ -1,5 +1,8 @@
 use clap::Parser;
 use rkyv;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
@@ -53,6 +56,25 @@ enum Commands {
         #[arg(long)]
         git_analysis_file: Option<String>,
     },
+    TriggerScoresMap {
+        /// Path to the workspace root
+        workspace_path: String,
+
+        /// The target to analyze
+        target: String,
+
+        /// The maximum number of commit history to consider
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Path to the dependencies file
+        #[arg(long)]
+        deps_file: Option<String>,
+
+        /// Path to the git analysis file
+        #[arg(long)]
+        git_analysis_file: Option<String>,
+    },
     /// Analyze Bazel dependency graph
     AnalyzeBazelDeps {
         /// Path to the workspace root
@@ -85,7 +107,9 @@ fn main() {
 }
 
 fn main_inner() -> Result<(), Box<dyn Error>> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
     let args = Args::parse();
 
     match args.command {
@@ -141,6 +165,41 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             println!("Trigger score for {}: {}", target, trigger_score);
             Ok(())
         }
+        Commands::TriggerScoresMap {
+            workspace_path: workspace_root,
+            target,
+            since,
+            deps_file,
+            git_analysis_file,
+        } => {
+            let deps_graph = if let Some(deps_file) = deps_file {
+                bazel::BazelDependencyGraph::from_file(&deps_file)?
+            } else {
+                bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)
+            };
+
+            let repo = if let Some(git_analysis_file) = git_analysis_file {
+                git::GitRepo::from_file(&git_analysis_file).unwrap()
+            } else {
+                git::GitRepo::from_path(&workspace_root, since).unwrap()
+            };
+
+            let scores_by_target = calculate_trigger_scores_map(&target, &repo, &deps_graph)?;
+            let mut sorted_scores: Vec<_> = scores_by_target.iter().collect();
+            sorted_scores.sort_by(|a, b| b.1.cmp(a.1));
+            let targets = sorted_scores
+                .iter()
+                .map(|(k, v)| Target {
+                    name: k.to_string(),
+                    score: **v,
+                })
+                .collect();
+            let trigger_scores = TriggerScores { targets };
+            let yaml_output = serde_yaml::to_string(&trigger_scores)?;
+            println!("{}", yaml_output);
+            Ok(())
+        }
+
         Commands::AnalyzeGitRepo {
             workspace_path,
             output,
@@ -278,4 +337,75 @@ fn calculate_trigger_scores(
         }
     }
     Ok(all_commits.len())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TriggerScores {
+    targets: Vec<Target>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Target {
+    name: String,
+    score: usize,
+}
+
+fn calculate_trigger_scores_map(
+    target: &str,
+    repo: &git::GitRepo,
+    deps_graph: &bazel::BazelDependencyGraph,
+) -> Result<HashMap<String, usize>, Box<dyn Error>> {
+    let mut commits_by_target = HashMap::new();
+    let mut score_by_target = HashMap::new();
+    calculate_trigger_scores_map_inner(
+        target,
+        repo,
+        deps_graph,
+        &mut commits_by_target,
+        &mut score_by_target,
+    )?;
+    Ok(score_by_target)
+}
+
+fn calculate_trigger_scores_map_inner(
+    target: &str,
+    repo: &git::GitRepo,
+    deps_graph: &bazel::BazelDependencyGraph,
+    commits_by_target: &mut HashMap<String, std::collections::HashSet<String>>,
+    score_by_target: &mut HashMap<String, usize>,
+) -> Result<std::collections::HashSet<String>, Box<dyn Error>> {
+    if let Some(commits) = commits_by_target.get(target) {
+        return Ok(commits.clone());
+    }
+    let mut all_commits: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let rule = deps_graph
+        .rules_by_label
+        .get(target)
+        .ok_or(format!("target {} not found in dependency graph", target))?;
+    for dep_target in rule.dep_targets.iter() {
+        all_commits.extend(calculate_trigger_scores_map_inner(
+            dep_target,
+            repo,
+            deps_graph,
+            commits_by_target,
+            score_by_target,
+        )?);
+    }
+    for source_file in rule.source_files.iter() {
+        // we don't care about remote dependencies
+        if source_file.starts_with("@") {
+            continue;
+        }
+        let parts: Vec<&str> = source_file.split(':').collect();
+        let relative_path = &format!("{}/{}", parts[0], parts[1])[2..];
+
+        // println!("Analyzing source file: {}", source_file);
+        if let Some(file) = repo.files.get(relative_path) {
+            // println!("Found {} commits for {}", commits.len(), source_file);
+            all_commits.extend(file.commit_history.iter().cloned());
+        }
+    }
+    score_by_target.insert(target.to_string(), all_commits.len());
+    commits_by_target.insert(target.to_string(), all_commits.clone());
+    Ok(all_commits)
 }
