@@ -2,7 +2,6 @@ use clap::Parser;
 use rkyv;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
@@ -74,6 +73,10 @@ enum Commands {
         /// Path to the git analysis file
         #[arg(long)]
         git_analysis_file: Option<String>,
+
+        /// The format to output the results in
+        #[arg(long, default_value = "yaml")]
+        format: String,
     },
     /// Analyze Bazel dependency graph
     AnalyzeBazelDeps {
@@ -171,6 +174,7 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             since,
             deps_file,
             git_analysis_file,
+            format,
         } => {
             let deps_graph = if let Some(deps_file) = deps_file {
                 bazel::BazelDependencyGraph::from_file(&deps_file)?
@@ -187,16 +191,25 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             let scores_by_target = calculate_trigger_scores_map(&target, &repo, &deps_graph)?;
             let mut sorted_scores: Vec<_> = scores_by_target.iter().collect();
             sorted_scores.sort_by(|a, b| b.1.cmp(a.1));
-            let targets = sorted_scores
-                .iter()
-                .map(|(k, v)| Target {
-                    name: k.to_string(),
-                    score: **v,
-                })
-                .collect();
+            let targets = sorted_scores.iter().map(|(k, v)| (*v).clone()).collect();
             let trigger_scores = TriggerScores { targets };
-            let yaml_output = serde_yaml::to_string(&trigger_scores)?;
-            println!("{}", yaml_output);
+            match format.as_str() {
+                "yaml" => {
+                    let yaml_output = serde_yaml::to_string(&trigger_scores)?;
+                    println!("{}", yaml_output);
+                }
+                "csv" => {
+                    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+                    // Serialize each target as a row
+                    for target in &trigger_scores.targets {
+                        wtr.serialize(target)?;
+                    }
+                    wtr.flush()?;
+                }
+                _ => {
+                    panic!("Unsupported format: {}", format);
+                }
+            }
             Ok(())
         }
 
@@ -344,26 +357,63 @@ struct TriggerScores {
     targets: Vec<Target>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 struct Target {
     name: String,
+    /// number of times the target is rebuilt
+    rebuilds: usize,
+    /// number of targets that depend on this target
+    dependents: usize,
+    /// score refers to how much the target is responsible for triggering
+    /// builds. it is currently rebuilds + dependents.
     score: usize,
+}
+
+impl Ord for Target {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rebuilds.cmp(&other.rebuilds)
+    }
+}
+
+impl PartialOrd for Target {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.rebuilds.cmp(&other.rebuilds))
+    }
 }
 
 fn calculate_trigger_scores_map(
     target: &str,
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
-) -> Result<HashMap<String, usize>, Box<dyn Error>> {
+) -> Result<HashMap<String, Target>, Box<dyn Error>> {
     let mut commits_by_target = HashMap::new();
     let mut score_by_target = HashMap::new();
-    calculate_trigger_scores_map_inner(
-        target,
-        repo,
-        deps_graph,
-        &mut commits_by_target,
-        &mut score_by_target,
-    )?;
+    if target.ends_with("...") {
+        let prefix = target[..target.len() - 4].to_string();
+        // we grab all targets from the map, in this case.
+        for (t, _) in deps_graph.rules_by_label.iter() {
+            if t.starts_with(&prefix) {
+                calculate_trigger_scores_map_inner(
+                    t,
+                    repo,
+                    deps_graph,
+                    &mut commits_by_target,
+                    &mut score_by_target,
+                )?;
+            }
+        }
+    } else {
+        calculate_trigger_scores_map_inner(
+            target,
+            repo,
+            deps_graph,
+            &mut commits_by_target,
+            &mut score_by_target,
+        )?;
+    }
+    for (_, target) in score_by_target.iter_mut() {
+        target.score = target.rebuilds * target.dependents;
+    }
     Ok(score_by_target)
 }
 
@@ -372,7 +422,7 @@ fn calculate_trigger_scores_map_inner(
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
     commits_by_target: &mut HashMap<String, std::collections::HashSet<String>>,
-    score_by_target: &mut HashMap<String, usize>,
+    score_by_target: &mut HashMap<String, Target>,
 ) -> Result<std::collections::HashSet<String>, Box<dyn Error>> {
     if let Some(commits) = commits_by_target.get(target) {
         return Ok(commits.clone());
@@ -390,6 +440,9 @@ fn calculate_trigger_scores_map_inner(
             commits_by_target,
             score_by_target,
         )?);
+        score_by_target
+            .entry(dep_target.to_string())
+            .and_modify(|t| t.dependents += 1);
     }
     for source_file in rule.source_files.iter() {
         // we don't care about remote dependencies
@@ -405,7 +458,15 @@ fn calculate_trigger_scores_map_inner(
             all_commits.extend(file.commit_history.iter().cloned());
         }
     }
-    score_by_target.insert(target.to_string(), all_commits.len());
+    score_by_target.insert(
+        target.to_string(),
+        Target {
+            name: target.to_string(),
+            rebuilds: all_commits.len(),
+            dependents: 1, // dependents always includes the target itself
+            score: 0,
+        },
+    );
     commits_by_target.insert(target.to_string(), all_commits.clone());
     Ok(all_commits)
 }
