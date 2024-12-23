@@ -4,11 +4,21 @@ A jackhammer to remove deps for bazel projects
 
 ## What is depsaw?
 
+**note**: this project is experimental. The API is subject to change. Feel free
+to contribute or file an issue!
+
 Depsaw helps you find unused dependencies in your bazel project.
 
 ## Installation
 
 See the releases page on GitHub to grab the precompiled binary.
+
+Or clone the repository, install [Cargo](https://doc.rust-lang.org/cargo/), and run:
+
+```bash
+cargo build --release
+./target/release/dephammer # built binary
+```
 
 ## User Guide
 
@@ -28,6 +38,15 @@ TARGET="//..."
 DEPS_FILE=/tmp/deps.rkyv
 depsaw analyze-bazel-deps $(pwd) "${TARGET}" --output "${DEPS_FILE}"
 ```
+
+1b. Optional, but if you'd like, you can pre-calculate the modified files as well:
+
+```bash
+depsaw run analyze-git-repo $(pwd) --output /tmp/git-analysis.rkyv
+```
+
+You can pass that in via the `--git-analysis-file` argument in
+`trigger-scores-map`.
 
 2. Run trigger-scores-map on specific target you care about - this will analyze
    the graph just for your dependencies.
