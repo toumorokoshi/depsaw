@@ -2,7 +2,7 @@ name: Release Build
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   build:
@@ -20,7 +20,9 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             asset_name: depsaw-macos-amd64
-
+    permissions:
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
