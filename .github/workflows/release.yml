@@ -43,11 +43,8 @@ jobs:
         run: copy target\${{ matrix.target }}\release\depsaw.exe ${{ matrix.asset_name }}
 
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
+          files: ${{ matrix.asset_name }}
