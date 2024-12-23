@@ -195,7 +195,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dephammer"
+name = "depsaw"
 version = "0.1.0"
 dependencies = [
  "clap",

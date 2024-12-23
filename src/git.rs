@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 
-const DEPHAMMER_COMMIT_PREFIX: &str = "dephammer-commit:";
+const DEPSAW_COMMIT_PREFIX: &str = "depsaw-commit:";
 
 #[derive(Debug, Archive, Serialize, Deserialize)]
 pub struct GitRepo {
@@ -41,7 +41,7 @@ fn get_file_commit_history(
     // Build command args, conditionally adding --since
     let mut args: Vec<String> = vec![
         "log".to_string(),
-        format!("--format={}%H", DEPHAMMER_COMMIT_PREFIX).to_string(),
+        format!("--format={}%H", DEPSAW_COMMIT_PREFIX).to_string(),
         "--name-only".to_string(),
     ];
     if let Some(since_date) = since {
@@ -72,8 +72,8 @@ fn get_file_commit_history(
         if line.is_empty() {
             continue;
         }
-        if line.starts_with(DEPHAMMER_COMMIT_PREFIX) {
-            commit = line.split(DEPHAMMER_COMMIT_PREFIX).nth(1).unwrap();
+        if line.starts_with(DEPSAW_COMMIT_PREFIX) {
+            commit = line.split(DEPSAW_COMMIT_PREFIX).nth(1).unwrap();
             debug!("processing commit_hash: {}", commit);
         } else {
             file_commits

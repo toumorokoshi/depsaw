@@ -1,22 +1,22 @@
-# dephammer
+# depsaw
 
 A jackhammer to remove deps for bazel projects
 
-## What is dephammer?
+## What is depsaw?
 
-Dephammer helps you find unused dependencies in your bazel project.
+Depsaw helps you find unused dependencies in your bazel project.
 
 ## User Guide
 
-dephammer expects to run in the root of your bazel workspace.
+depsaw expects to run in the root of your bazel workspace.
 
-Dephammer works on a specific bazel target, paired with a list of test targets. the invocation looks like:
+Depsaw works on a specific bazel target, paired with a list of test targets. the invocation looks like:
 
 ```bash
-dephammer //foo:build --test=//foo:build_test --test=//foo:build_test_2
+depsaw //foo:build --test=//foo:build_test --test=//foo:build_test_2
 ```
 
-From there, dephammer will:
+From there, depsaw will:
 
 1. look at all the deps and data entries of //foo:build.
 2. remove them one by one.

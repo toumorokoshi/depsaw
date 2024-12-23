@@ -2,7 +2,7 @@
 
 ## Brainstorming
 
-dephammer will attempt to figure out which dependencies are the most valuable to
+depsaw will attempt to figure out which dependencies are the most valuable to
 remove. It does not consider things like the actual cost to build a specific
 target, and instead only works based on the *number* of targets.
 
@@ -74,5 +74,5 @@ For large repositories, writing the dependency graph to a file and reusing it
 may be significantly faster than running the command every time:
 
 ```
-bazel query "deps(//...)" --output streamed_jsonproto >  ~/sandbox/dephammer.ndjson
+bazel query "deps(//...)" --output streamed_jsonproto >  ~/sandbox/depsaw.ndjson
 ```
