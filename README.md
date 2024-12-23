@@ -1,6 +1,6 @@
 # depsaw
 
-A jackhammer to remove deps for bazel projects
+A tool to analyze dependencies for bazel projects.
 
 ## What is depsaw?
 
@@ -56,5 +56,5 @@ TARGET=YOUR_TARGET_HERE
 depsaw trigger-scores-map $(pwd) "${TARGET}" --format=csv --since 2024-11-01 --deps-file "${DEPS_FILE}" > /tmp/deps.csv
 ```
 
-Thaat will generate a csv, sorted by score, to find the targets that are
+That will generate a csv, sorted by score, to find the targets that are
 triggering the most builds.
