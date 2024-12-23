@@ -1,7 +1,5 @@
 use clap::Parser;
 use rkyv;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::Write;
@@ -111,7 +109,9 @@ fn main() {
 }
 
 fn main_inner() -> Result<(), Box<dyn Error>> {
+    let filter = tracing_subscriber::EnvFilter::from_env("RUST_LOG");
     tracing_subscriber::fmt()
+        .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .init();
     let args = Args::parse();

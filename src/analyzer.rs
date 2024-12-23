@@ -1,11 +1,11 @@
 use super::bazel;
 use super::git;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::error::Error;
 use std::rc::Rc;
-
+use std::sync::RwLock;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TriggerScores {
     pub targets: Vec<ResolvedTarget>,
@@ -24,15 +24,13 @@ pub struct ResolvedTarget {
     pub score: usize,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Target {
     pub name: String,
     /// number of times the target is rebuilt
     pub rebuilds: usize,
     /// number of targets that depend on this target
-    pub immediate_dependents: Vec<Rc<Target>>,
-    /// builds. it is currently rebuilds + dependents.
-    pub score: usize,
+    pub immediate_dependents: Vec<Rc<RwLock<Target>>>,
 }
 
 impl Ord for ResolvedTarget {
@@ -51,7 +49,7 @@ pub fn calculate_trigger_scores_map(
     target: &str,
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
-) -> Result<HashMap<String, ResolvedTarget>, Box<dyn Error>> {
+) -> Result<HashMap<String, ResolvedTarget>> {
     let mut commits_by_target = HashMap::new();
     let mut score_by_target = HashMap::new();
     if target.ends_with("...") {
@@ -79,9 +77,10 @@ pub fn calculate_trigger_scores_map(
     }
     let mut result = HashMap::new();
     // calculate values that were not calculatable in the first pass
-    for (_, target) in score_by_target.iter_mut() {
+    for (_, targetRw) in score_by_target.iter_mut() {
+        let target = targetRw.read().unwrap();
         let score = target.rebuilds * target.immediate_dependents.len();
-        let total_dependents = recursively_calculate_total_dependents(target);
+        let total_dependents = recursively_calculate_total_dependents(&targetRw);
         result.insert(
             target.name.clone(),
             ResolvedTarget {
@@ -101,22 +100,21 @@ fn calculate_trigger_scores_map_inner(
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
     commits_by_target: &mut HashMap<String, std::collections::HashSet<String>>,
-    score_by_target: &mut HashMap<String, Rc<Target>>,
-) -> Result<std::collections::HashSet<String>, Box<dyn Error>> {
+    score_by_target: &mut HashMap<String, Rc<RwLock<Target>>>,
+) -> anyhow::Result<std::collections::HashSet<String>> {
     if let Some(commits) = commits_by_target.get(target_name) {
         return Ok(commits.clone());
     }
     let mut all_commits: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let rule = deps_graph.rules_by_label.get(target_name).ok_or(format!(
+    let rule = deps_graph.rules_by_label.get(target_name).ok_or(anyhow!(
         "target {} not found in dependency graph",
         target_name
     ))?;
-    let mut target_rc = Rc::new(Target {
+    let target_rc = Rc::new(RwLock::new(Target {
         name: target_name.to_string(),
         rebuilds: 0,
         immediate_dependents: vec![],
-        score: 0,
-    });
+    }));
     for dep_target in rule.dep_targets.iter() {
         all_commits.extend(calculate_trigger_scores_map_inner(
             dep_target,
@@ -125,14 +123,8 @@ fn calculate_trigger_scores_map_inner(
             commits_by_target,
             score_by_target,
         )?);
-        score_by_target
-            .entry(dep_target.to_string())
-            .and_modify(|t| {
-                Rc::get_mut(t)
-                    .unwrap()
-                    .immediate_dependents
-                    .push(target_rc.clone())
-            });
+        let mut target = score_by_target.get(dep_target).unwrap().write().unwrap();
+        target.immediate_dependents.push(target_rc.clone());
     }
     for source_file in rule.source_files.iter() {
         // we don't care about remote dependencies
@@ -142,35 +134,33 @@ fn calculate_trigger_scores_map_inner(
         let parts: Vec<&str> = source_file.split(':').collect();
         let relative_path = &format!("{}/{}", parts[0], parts[1])[2..];
 
-        // println!("Analyzing source file: {}", source_file);
         if let Some(file) = repo.files.get(relative_path) {
-            // println!("Found {} commits for {}", commits.len(), source_file);
             all_commits.extend(file.commit_history.iter().cloned());
         }
     }
-    let target = Rc::get_mut(&mut target_rc).unwrap();
+    let mut target = target_rc.write().unwrap();
     target.rebuilds = all_commits.len();
-    score_by_target.insert(target_name.to_string(), target_rc);
+    score_by_target.insert(target_name.to_string(), target_rc.clone());
     commits_by_target.insert(target_name.to_string(), all_commits.clone());
     Ok(all_commits)
 }
 
-fn recursively_calculate_total_dependents(target: &Rc<Target>) -> usize {
+fn recursively_calculate_total_dependents(target: &Rc<RwLock<Target>>) -> usize {
     let mut visited = HashSet::new();
     inner_recursively_calculate_total_dependents(target, &mut visited);
     visited.len()
 }
 
 fn inner_recursively_calculate_total_dependents(
-    target: &Rc<Target>,
+    target: &Rc<RwLock<Target>>,
     visited: &mut HashSet<String>,
 ) -> usize {
     let mut total = 1;
-    for dependent in target.immediate_dependents.iter() {
-        if visited.contains(&dependent.name) {
+    for dependent in target.read().unwrap().immediate_dependents.iter() {
+        if visited.contains(&dependent.read().unwrap().name) {
             continue;
         }
-        visited.insert(dependent.name.clone());
+        visited.insert(dependent.read().unwrap().name.clone());
         total += inner_recursively_calculate_total_dependents(dependent, visited);
     }
     total

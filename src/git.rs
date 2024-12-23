@@ -74,7 +74,6 @@ fn get_file_commit_history(
         }
         if line.starts_with(DEPSAW_COMMIT_PREFIX) {
             commit = line.split(DEPSAW_COMMIT_PREFIX).nth(1).unwrap();
-            debug!("processing commit_hash: {}", commit);
         } else {
             file_commits
                 .entry(line.to_string())

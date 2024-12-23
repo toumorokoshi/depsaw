@@ -25,6 +25,7 @@ impl BazelDependencyGraph {
     }
 
     pub fn from_workspace(workspace_root: &str, target: &str) -> BazelDependencyGraph {
+        debug!("running bazel query");
         let output = Command::new("bazel")
             .current_dir(workspace_root)
             .args([
@@ -82,6 +83,7 @@ impl BazelDependencyGraph {
                 dep_targets,
                 source_files,
             };
+            debug!("adding rule: {}", rule.name);
             rules_by_label.insert(rule.name, entry);
         }
 
