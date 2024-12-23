@@ -115,6 +115,7 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
         .with_writer(std::io::stderr)
         .init();
     let args = Args::parse();
+    info!("Starting analysis");
 
     match args.command {
         Commands::Analyze { target, test } => {

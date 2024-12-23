@@ -35,13 +35,13 @@ pub struct Target {
 
 impl Ord for ResolvedTarget {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.rebuilds.cmp(&other.rebuilds)
+        self.score.cmp(&other.score)
     }
 }
 
 impl PartialOrd for ResolvedTarget {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.rebuilds.cmp(&other.rebuilds))
+        Some(self.score.cmp(&other.score))
     }
 }
 
@@ -77,10 +77,10 @@ pub fn calculate_trigger_scores_map(
     }
     let mut result = HashMap::new();
     // calculate values that were not calculatable in the first pass
-    for (_, targetRw) in score_by_target.iter_mut() {
-        let target = targetRw.read().unwrap();
-        let score = target.rebuilds * target.immediate_dependents.len();
-        let total_dependents = recursively_calculate_total_dependents(&targetRw);
+    for (_, target_rw) in score_by_target.iter_mut() {
+        let target = target_rw.read().unwrap();
+        let total_dependents = recursively_calculate_total_dependents(&target_rw);
+        let score = target.rebuilds * (total_dependents + 1);
         result.insert(
             target.name.clone(),
             ResolvedTarget {
