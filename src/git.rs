@@ -2,7 +2,6 @@ use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
-use std::fs::File;
 use tracing::{debug, info};
 
 const DEPSAW_COMMIT_PREFIX: &str = "depsaw-commit:";

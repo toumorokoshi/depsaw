@@ -4,7 +4,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
-use tracing::Level;
 use tracing_subscriber;
 
 mod analyzer;

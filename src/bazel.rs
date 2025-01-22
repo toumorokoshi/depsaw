@@ -62,13 +62,13 @@ impl BazelDependencyGraph {
         let mut rules = vec![];
         for entry in raw_entries {
             let name = match &entry {
-                DependencyEntry::RULE { rule } => {
+                DependencyEntry::Rule { rule } => {
                     rules.push(rule.clone());
                     rule.name.clone()
                 }
-                DependencyEntry::SOURCE_FILE { sourceFile } => sourceFile.name.clone(),
-                DependencyEntry::PACKAGE_GROUP { packageGroup } => packageGroup.name.clone(),
-                DependencyEntry::GENERATED_FILE { generatedFile } => generatedFile.name.clone(),
+                DependencyEntry::SourceFile { source_file } => source_file.name.clone(),
+                DependencyEntry::PackageGroup { package_group } => package_group.name.clone(),
+                DependencyEntry::GeneratedFile { generated_file } => generated_file.name.clone(),
             };
             targets_by_label.insert(name, entry);
         }
@@ -77,17 +77,17 @@ impl BazelDependencyGraph {
         for rule in rules {
             let mut source_files = vec![];
             let mut dep_targets = vec![];
-            for dep in rule.ruleInput {
+            for dep in rule.rule_input {
                 // ignore external dependencies
                 if dep.starts_with("@") {
                     continue;
                 }
                 if let Some(entry) = targets_by_label.get(&dep) {
                     match entry {
-                        DependencyEntry::SOURCE_FILE { sourceFile } => {
-                            source_files.push(sourceFile.name.clone());
+                        DependencyEntry::SourceFile { source_file } => {
+                            source_files.push(source_file.name.clone());
                         }
-                        DependencyEntry::RULE { rule } => {
+                        DependencyEntry::Rule { rule } => {
                             dep_targets.push(rule.name.clone());
                         }
                         _ => {}
@@ -144,22 +144,36 @@ impl BazelDependencyGraph {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 enum DependencyEntry {
-    RULE { rule: Rule },
-    SOURCE_FILE { sourceFile: SourceFile },
-    PACKAGE_GROUP { packageGroup: PackageGroup },
-    GENERATED_FILE { generatedFile: GeneratedFile },
+    #[serde(rename = "RULE")]
+    Rule { rule: Rule },
+    #[serde(rename = "SOURCE_FILE")]
+    SourceFile {
+        #[serde(rename = "sourceFile")]
+        source_file: SourceFile,
+    },
+    #[serde(rename = "PACKAGE_GROUP")]
+    PackageGroup {
+        #[serde(rename = "packageGroup")]
+        package_group: PackageGroup,
+    },
+    #[serde(rename = "GENERATED_FILE")]
+    GeneratedFile {
+        #[serde(rename = "generatedFile")]
+        generated_file: GeneratedFile,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Rule {
     pub name: String,
-    pub ruleClass: String,
+    #[serde(rename = "ruleClass")]
+    pub rule_class: String,
     pub location: String,
     pub attribute: Vec<Attribute>,
-    #[serde(default)]
-    pub ruleInput: Vec<String>,
-    #[serde(default)]
-    pub ruleOutput: Vec<String>,
+    #[serde(default, rename = "ruleInput")]
+    pub rule_input: Vec<String>,
+    #[serde(default, rename = "ruleOutput")]
+    pub rule_output: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -167,15 +181,16 @@ struct Attribute {
     pub name: String,
     #[serde(rename = "type")]
     pub attr_type: String,
-    #[serde(default)]
-    pub stringValue: Option<String>,
-    #[serde(default)]
-    pub stringListValue: Option<Vec<String>>,
-    #[serde(default)]
-    pub intValue: Option<i64>,
-    #[serde(default)]
-    pub booleanValue: Option<bool>,
-    pub explicitlySpecified: Option<bool>,
+    #[serde(rename = "stringValue")]
+    pub string_value: Option<String>,
+    #[serde(rename = "stringListValue")]
+    pub string_list_value: Option<Vec<String>>,
+    #[serde(rename = "intValue")]
+    pub int_value: Option<i64>,
+    #[serde(rename = "booleanValue")]
+    pub boolean_value: Option<bool>,
+    #[serde(rename = "explicitlySpecified")]
+    pub explicitly_specified: Option<bool>,
     pub nodep: Option<bool>,
 }
 
@@ -183,7 +198,8 @@ struct Attribute {
 pub struct SourceFile {
     pub name: String,
     pub location: String,
-    pub visibilityLabel: Vec<String>,
+    #[serde(rename = "visibilityLabel")]
+    pub visibility_label: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -194,7 +210,8 @@ struct PackageGroup {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct GeneratedFile {
     pub name: String,
-    pub generatingRule: String,
+    #[serde(rename = "generatingRule")]
+    pub generating_rule: String,
     pub location: String,
 }
 
