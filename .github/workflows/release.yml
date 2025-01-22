@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: linux-latest
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             asset_name: depsaw-linux-amd64
           - os: windows-latest
