@@ -4,12 +4,13 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command;
+use tracing::Level;
 use tracing_subscriber;
 
 mod analyzer;
 mod bazel;
 mod git;
-use log::{error, info};
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(
@@ -110,10 +111,11 @@ fn main() {
 
 fn main_inner() -> Result<(), Box<dyn Error>> {
     let filter = tracing_subscriber::EnvFilter::from_env("RUST_LOG");
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_writer(std::io::stderr)
-        .init();
+        .with_env_filter(filter)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
     let args = Args::parse();
     info!("Starting analysis");
 
@@ -157,7 +159,7 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             let deps_graph = if let Some(deps_file) = deps_file {
                 bazel::BazelDependencyGraph::from_file(&deps_file)?
             } else {
-                bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)
+                bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)?
             };
 
             let repo = if let Some(git_analysis_file) = git_analysis_file {
@@ -181,7 +183,7 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             let deps_graph = if let Some(deps_file) = deps_file {
                 bazel::BazelDependencyGraph::from_file(&deps_file)?
             } else {
-                bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)
+                bazel::BazelDependencyGraph::from_workspace(&workspace_root, &target)?
             };
 
             let repo = if let Some(git_analysis_file) = git_analysis_file {
@@ -194,7 +196,7 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
                 analyzer::calculate_trigger_scores_map(&target, &repo, &deps_graph)?;
             let mut sorted_scores: Vec<_> = scores_by_target.iter().collect();
             sorted_scores.sort_by(|a, b| b.1.cmp(a.1));
-            let targets = sorted_scores.iter().map(|(k, v)| (*v).clone()).collect();
+            let targets = sorted_scores.iter().map(|(_, v)| (*v).clone()).collect();
             let trigger_scores = analyzer::TriggerScores { targets };
             match format.as_str() {
                 "yaml" => {
@@ -233,7 +235,7 @@ fn main_inner() -> Result<(), Box<dyn Error>> {
             target,
             output,
         } => {
-            let deps_graph = bazel::BazelDependencyGraph::from_workspace(&workspace_path, &target);
+            let deps_graph = bazel::BazelDependencyGraph::from_workspace(&workspace_path, &target)?;
             let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&deps_graph)?;
             let mut file = File::create(output).unwrap();
             file.write_all(&bytes).unwrap();

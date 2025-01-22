@@ -1,10 +1,10 @@
-use log::{debug, info};
 use rkyv;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::process::Command;
+use tracing::{debug, info};
 
 #[derive(Archive, Debug, RkyvSerialize, RkyvDeserialize, Clone)]
 pub struct BazelDependencyGraph {
@@ -24,9 +24,17 @@ impl BazelDependencyGraph {
         Ok(rkyv::from_bytes::<BazelDependencyGraph, rkyv::rancor::Error>(&content)?)
     }
 
-    pub fn from_workspace(workspace_root: &str, target: &str) -> BazelDependencyGraph {
-        debug!("running bazel query");
-        let output = Command::new("bazel")
+    pub fn from_workspace(
+        workspace_root: &str,
+        target: &str,
+    ) -> Result<BazelDependencyGraph, Box<dyn Error>> {
+        let prog = "bazel";
+        let cmd = format!(
+            "{} query 'deps({})' --output streamed_jsonproto",
+            prog, target
+        );
+        debug!(workspace_root, cmd, "running bazel query");
+        let output = Command::new(prog)
             .current_dir(workspace_root)
             .args([
                 "query",
@@ -34,10 +42,17 @@ impl BazelDependencyGraph {
                 "--output",
                 "streamed_jsonproto",
             ])
-            .output()
-            .expect("Failed to execute bazel query");
-        let content = String::from_utf8(output.stdout).unwrap();
-        BazelDependencyGraph::from_string(&content)
+            .output()?;
+        if !output.status.success() {
+            return Err(format!(
+                "Bazel command {} failed: {}",
+                cmd,
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .into());
+        }
+        let content = String::from_utf8(output.stdout)?;
+        Ok(BazelDependencyGraph::from_string(&content))
     }
 
     pub fn from_string(content: &str) -> BazelDependencyGraph {

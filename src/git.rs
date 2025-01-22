@@ -1,9 +1,9 @@
-use log::{debug, info};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
+use tracing::{debug, info};
 
 const DEPSAW_COMMIT_PREFIX: &str = "depsaw-commit:";
 
@@ -49,15 +49,19 @@ fn get_file_commit_history(
         args.push(arg);
     }
 
+    let prog = "git";
+    let cmd = format!("{} {}", prog, args.join(" "));
+    debug!(repo_path, cmd, "running git log");
     // Run git log command
-    let output = std::process::Command::new("git")
+    let output = std::process::Command::new(prog)
         .current_dir(repo_path)
         .args(&args)
         .output()?;
 
     if !output.status.success() {
         return Err(format!(
-            "Git command failed: {}",
+            "Git command {} failed: {}",
+            cmd,
             String::from_utf8_lossy(&output.stderr)
         )
         .into());
