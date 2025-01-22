@@ -1,6 +1,6 @@
-use super::bazel;
-use super::git;
-use anyhow::{anyhow, Result};
+use super::super::bazel;
+use super::super::git;
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -22,6 +22,10 @@ pub struct ResolvedTarget {
     pub total_dependents: usize,
     /// builds. it is currently rebuilds + dependents.
     pub score: usize,
+    /// The commits that trigger this target specifically. Does not include commits
+    /// that triggered dependencies.
+    #[serde(skip_serializing, skip_deserializing)]
+    pub commits: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,12 +49,13 @@ impl PartialOrd for ResolvedTarget {
     }
 }
 
-pub fn calculate_trigger_scores_map(
+pub fn calculate_trigger_scores(
     target: &str,
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
-) -> Result<HashMap<String, ResolvedTarget>> {
+) -> anyhow::Result<HashMap<String, ResolvedTarget>> {
     let mut commits_by_target = HashMap::new();
+    let mut commits_specific_to_target = HashMap::new();
     let mut score_by_target = HashMap::new();
     if target.ends_with("...") {
         let prefix = target[..target.len() - 4].to_string();
@@ -62,6 +67,7 @@ pub fn calculate_trigger_scores_map(
                     repo,
                     deps_graph,
                     &mut commits_by_target,
+                    &mut commits_specific_to_target,
                     &mut score_by_target,
                 )?;
             }
@@ -72,6 +78,7 @@ pub fn calculate_trigger_scores_map(
             repo,
             deps_graph,
             &mut commits_by_target,
+            &mut commits_specific_to_target,
             &mut score_by_target,
         )?;
     }
@@ -89,6 +96,13 @@ pub fn calculate_trigger_scores_map(
                 immediate_dependents: target.immediate_dependents.len(),
                 total_dependents: total_dependents,
                 score,
+                commits: commits_specific_to_target
+                    .get(&target.name)
+                    .ok_or(anyhow!(
+                        "target {} not found in commits_specific_to_target",
+                        target.name
+                    ))?
+                    .clone(),
             },
         );
     }
@@ -100,6 +114,7 @@ fn calculate_trigger_scores_map_inner(
     repo: &git::GitRepo,
     deps_graph: &bazel::BazelDependencyGraph,
     commits_by_target: &mut HashMap<String, std::collections::HashSet<String>>,
+    commits_specific_to_target: &mut HashMap<String, std::collections::HashSet<String>>,
     score_by_target: &mut HashMap<String, Rc<RwLock<Target>>>,
 ) -> anyhow::Result<std::collections::HashSet<String>> {
     if let Some(commits) = commits_by_target.get(target_name) {
@@ -121,11 +136,13 @@ fn calculate_trigger_scores_map_inner(
             repo,
             deps_graph,
             commits_by_target,
+            commits_specific_to_target,
             score_by_target,
         )?);
         let mut target = score_by_target.get(dep_target).unwrap().write().unwrap();
         target.immediate_dependents.push(target_rc.clone());
     }
+    let mut commits_touching_files = HashSet::new();
     for source_file in rule.source_files.iter() {
         // we don't care about remote dependencies
         if source_file.starts_with("@") {
@@ -135,13 +152,15 @@ fn calculate_trigger_scores_map_inner(
         let relative_path = &format!("{}/{}", parts[0], parts[1])[2..];
 
         if let Some(file) = repo.files.get(relative_path) {
-            all_commits.extend(file.commit_history.iter().cloned());
+            commits_touching_files.extend(file.commit_history.iter().cloned());
         }
     }
+    all_commits.extend(commits_touching_files.iter().cloned());
     let mut target = target_rc.write().unwrap();
     target.rebuilds = all_commits.len();
     score_by_target.insert(target_name.to_string(), target_rc.clone());
     commits_by_target.insert(target_name.to_string(), all_commits.clone());
+    commits_specific_to_target.insert(target_name.to_string(), commits_touching_files);
     Ok(all_commits)
 }
 

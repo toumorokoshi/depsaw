@@ -1,3 +1,4 @@
+use anyhow;
 use rkyv;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ pub struct Entry {
 }
 
 impl BazelDependencyGraph {
-    pub fn from_file(path: &str) -> Result<BazelDependencyGraph, Box<dyn Error>> {
+    pub fn from_file(path: &str) -> anyhow::Result<BazelDependencyGraph> {
         info!("reading bazel dependency graph from {}", path);
         let content = std::fs::read(path).unwrap();
         Ok(rkyv::from_bytes::<BazelDependencyGraph, rkyv::rancor::Error>(&content)?)
@@ -27,7 +28,7 @@ impl BazelDependencyGraph {
     pub fn from_workspace(
         workspace_root: &str,
         target: &str,
-    ) -> Result<BazelDependencyGraph, Box<dyn Error>> {
+    ) -> anyhow::Result<BazelDependencyGraph> {
         let prog = "bazel";
         let cmd = format!(
             "{} query 'deps({})' --output streamed_jsonproto",
@@ -44,12 +45,11 @@ impl BazelDependencyGraph {
             ])
             .output()?;
         if !output.status.success() {
-            return Err(format!(
+            return Err(anyhow::anyhow!(
                 "Bazel command {} failed: {}",
                 cmd,
                 String::from_utf8_lossy(&output.stderr)
-            )
-            .into());
+            ));
         }
         let content = String::from_utf8(output.stdout)?;
         Ok(BazelDependencyGraph::from_string(&content))

@@ -14,16 +14,34 @@ Take, for example:
 
 ```mermaid
 graph TD
-    A[Your Target] --> B[Dep 1]
-    A --> C[Dep 2]
-    B --> D[Common Dep]
+    A["A (Your Target)"] --> B["B (Dep 1)"]
+    A --> C["C (Dep 2)"]
+    B --> D["D (Common Dep)"]
     C --> D
-    D --> E[Frequently Changed File]
+    D --> E["E (Frequently Changed File)"]
 ```
 
-In this case, removing `Dep 1` will still trigger your target frequently,
-because E is still in the dependency chain.
+In this case, removing `B` will still trigger your target frequently,
+because `E` is still in the dependency chain:
 
-Therefore, the most effective dep to remove is the one that is being triggered
-the most frequently, when you subtract triggers from any duplicate upstream
-dependencies for your target.
+```mermaid
+graph TD
+    A["A (Your Target)"]
+    A --> C["C (Dep 2)"]
+    C --> D
+    D --> E["E (Frequently Changed File)"]
+```
+
+Therefore, the most effective dep to remove is the one that is triggered the
+most by dependencies that are not shared by other dependencies. The algorithm could look like:
+
+```python
+def most_unique_triggers(target):
+    duplicate_deps = calculate_duplicate_deps(target)
+    score_savings_per_dep = defaultdict(int)
+    for dep in target:
+        unique_deps = d for d in target.deps if d not in duplicate_deps
+        total_score = len(union(d.commits for d in unique_deps) | target.files_changed_commits
+        score_savings_per_dep[dep] = total_score
+    return score_savings_per_dep
+```
