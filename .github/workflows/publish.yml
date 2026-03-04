@@ -24,4 +24,5 @@ jobs:
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-        run: cargo publish
+        # we allow dirty because we change the version name above.
+        run: cargo publish --allow-dirty
