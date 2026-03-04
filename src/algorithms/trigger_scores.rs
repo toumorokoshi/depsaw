@@ -6,10 +6,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::RwLock;
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TriggerScores {
-    pub targets: Vec<ResolvedTarget>,
-}
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct ResolvedTarget {
