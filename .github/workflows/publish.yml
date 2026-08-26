@@ -18,8 +18,12 @@ jobs:
 
       - name: Update Cargo.toml version
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          sed -i -e "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION=${GITHUB_REF_NAME#v}
+            sed -i -e "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+          else
+            echo "Not a tag trigger (ref: ${GITHUB_REF_NAME}), using version from Cargo.toml"
+          fi
 
       - name: Publish to crates.io
         env:
