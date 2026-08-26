@@ -4,10 +4,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 
-mod algorithms;
-mod bazel;
-mod git;
-mod operations;
+use depsaw::{algorithms, bazel, git, operations};
 use tracing::info;
 use tracing_subscriber;
 use tracing_subscriber::filter::LevelFilter;

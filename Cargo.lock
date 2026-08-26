@@ -202,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "depsaw"
-version = "0.1.0-alpha1"
+version = "0.3.0-alpha1"
 dependencies = [
  "anyhow",
  "clap",
